@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Pickleball 計分器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { height: 100%; background: #000; }
+    body {
+      font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', BlinkMacSystemFont, system-ui, sans-serif;
+      color: #fff;
+      height: 100%;
+      min-height: -webkit-fill-available;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+      background: #000;
+    }
+
+    /* ===== Call score floating banner ===== */
+    .call-banner {
+      position: absolute;
+      top: max(env(safe-area-inset-top, 6px), 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      background: rgba(0,0,0,0.25);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 100px;
+      padding: 6px 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .call-banner .call-l {
+      font-size: 13px;
+      color: rgba(255,255,255,0.5);
+      font-weight: 600;
+    }
+    .call-banner .call-v {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.9);
+    }
+
+    /* ===== Player view toggle ===== */
+    .view-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      border: none;
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.5);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .view-toggle:active { background: rgba(255,255,255,0.14); }
+    .view-toggle svg { flex-shrink: 0; }
+
+    /* ===== Scoreboard ===== */
+    .scoreboard { flex: 1; display: flex; min-height: 0; position: relative; }
+
+    /* Player view: mirror left/right + swap top/bottom within each team */
+    .scoreboard.player-view { flex-direction: row-reverse; }
+    .scoreboard.player-view .p-l1 { top: auto; bottom: 18%; }
+    .scoreboard.player-view .p-l2 { bottom: auto; top: 22%; }
+    .scoreboard.player-view .p-r1 { top: auto; bottom: 18%; }
+    .scoreboard.player-view .p-r2 { bottom: auto; top: 22%; }
+
+    .team-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: filter 0.1s;
+      overflow: hidden;
+    }
+    .team-panel:active { filter: brightness(0.88); }
+
+    /* Players on sideline */
+    .player-chip {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      pointer-events: none;
+      z-index: 3;
+      transition: top 0.4s ease, bottom 0.4s ease;
+    }
+    /* Left team: players on the LEFT edge */
+    .p-l1 { left: 36px; top: 22%; }
+    .p-l2 { left: 36px; bottom: 18%; }
+    /* Right team: players on the RIGHT edge */
+    .p-r1 { right: 36px; top: 22%; }
+    .p-r2 { right: 36px; bottom: 18%; }
+    /* Singles: P1 and P3 centered vertically, at horizontal edges */
+    .singles-mode .p-l1 { top: 50%; transform: translateY(-50%); }
+    .singles-mode .p-r1 { top: 50%; transform: translateY(-50%); }
+
+    .avatar {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1.5px solid rgba(255,255,255,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      position: relative;
+      overflow: visible;
+    }
+    @media (min-width: 1024px) {
+      .avatar {
+        width: 80px; height: 80px;
+        border: 2.5px solid rgba(255,255,255,0.35);
+        font-size: 28px;
+      }
+    }
+    .avatar canvas { width: 100%; height: 100%; border-radius: 50%; }
+    .player-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      max-width: 48px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    @media (min-width: 1024px) {
+      .player-label { font-size: 13px; max-width: 64px; }
+    }
+    .serve-dot {
+      position: absolute;
+      top: -8px; right: -14px;
+      width: 25px; height: 25px;
+      display: none;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+      transform: rotate(-30deg);
+    }
+    @media (min-width: 1024px) {
+      .serve-dot { top: -20px; right: -35px; width: 60px; height: 60px; }
+    }
+    .serve-dot.on { display: block; }
+    .serve-dot svg { width: 100%; height: 100%; }
+
+    /* Score center */
+    .score-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      z-index: 2;
+    }
+    .serving-pill {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 2px 10px;
+      border-radius: 100px;
+      background: transparent;
+      color: transparent;
+      transition: all 0.2s;
+    }
+    .serving-pill.active {
+      background: rgba(255,255,255,0.92);
+      color: rgba(0,0,0,0.65);
+    }
+    .score {
+      font-size: min(32vw, 200px);
+      font-weight: 800;
+      line-height: 0.88;
+      letter-spacing: -4px;
+      color: rgba(255,255,255,0.95);
+    }
+    @media (min-width: 1024px) {
+      .score {
+        font-size: min(32vw, 300px);
+        letter-spacing: -6px;
+      }
+      .serving-pill {
+        font-size: 16px;
+        padding: 4px 16px;
+      }
+      .server-tag {
+        font-size: 18px;
+        min-height: 24px;
+      }
+    }
+    .server-tag {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0);
+      min-height: 18px;
+      transition: color 0.2s;
+    }
+    .server-tag.active { color: rgba(255,255,255,0.7); }
+
+    /* Undo button */
+    .minus-btn {
+      position: absolute;
+      top: max(env(safe-area-inset-top, 10px), 10px);
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0,0,0,0.18);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: rgba(255,255,255,0.6);
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      -webkit-tap-highlight-color: transparent;
+    }
+    @media (min-width: 1024px) {
+      .minus-btn {
+        top: auto;
+        bottom: 60px;
+      }
+    }
+    .minus-btn:active { background: rgba(0,0,0,0.35); }
+
+    /* ===== Bottom bar ===== */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 15;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      padding: 8px 10px max(env(safe-area-inset-bottom, 8px), 8px);
+      background: transparent;
+      border-top: none;
+    }
+    @media (min-width: 1024px) {
+      .bottom-bar {
+        background: rgba(255,255,255,0.1);
+        backdrop-filter: blur(28px) saturate(1.5);
+        -webkit-backdrop-filter: blur(28px) saturate(1.5);
+        border-top: 0.5px solid rgba(255,255,255,0.18);
+      }
+    }
+    .bar-group { display: flex; gap: 6px; align-items: center; }
+    .bar-group:last-child { justify-content: flex-end; }
+
+    .pb {
+      padding: 6px 14px;
+      border-radius: 100px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      font-family: inherit;
+    }
+    .pb.dim { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
+    .pb.dim:active { background: rgba(255,255,255,0.13); }
+    .fault-center {
+      padding: 8px 28px;
+      border-radius: 100px;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-bottom-color: rgba(0,0,0,0.15);
+      font-size: 14px;
+      font-weight: 600;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      box-shadow: 0 1px 2px rgba(255,255,255,0.25) inset, 0 -1px 2px rgba(0,0,0,0.2) inset, 0 4px 12px rgba(0,0,0,0.3);
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      cursor: pointer;
+      font-family: inherit;
+      -webkit-tap-highlight-color: transparent;
+      letter-spacing: 0.5px;
+    }
+    .fault-center:active {
+      background: rgba(255,255,255,0.18);
+      box-shadow: 0 1px 1px rgba(255,255,255,0.15) inset, 0 -1px 1px rgba(0,0,0,0.15) inset, 0 2px 6px rgba(0,0,0,0.3);
+    }
+    @media (min-width: 1024px) {
+      .fault-center {
+        background: #FF3B30;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        border: none;
+        box-shadow: none;
+        text-shadow: none;
+      }
+      .fault-center:active { background: #cc2f26; box-shadow: none; }
+    }
+    .ib {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.5);
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ib:active { background: rgba(255,255,255,0.14); }
+
+    /* ===== Win ===== */
+    .win-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .win-overlay.show { display: flex; }
+    .win-e { font-size: 56px; margin-bottom: 12px; }
+    .win-t { font-size: 26px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.3px; }
+    .win-s { font-size: 17px; color: rgba(255,255,255,0.45); margin-bottom: 28px; }
+    .win-b {
+      padding: 13px 44px; border-radius: 14px; border: none;
+      background: #fff; color: #000;
+      font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .win-b:active { background: #e5e5e7; }
+
+    /* ===== Settings sheet ===== */
+    .sheet-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .sheet-bg.show { display: flex; }
+    .sheet {
+      background: #1c1c1e;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 80dvh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: max(env(safe-area-inset-bottom, 16px), 16px);
+    }
+    .sh-sticky-header {
+      position: sticky; top: 0; z-index: 2;
+      background: #1c1c1e;
+      border-radius: 16px 16px 0 0;
+    }
+    .sh-bar {
+      display: flex; align-items: center; justify-content: center;
+      padding: 8px 0 0;
+    }
+    .sh-pill { width: 36px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.18); }
+    .sh-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px 14px;
+    }
+    .sh-title { font-size: 20px; font-weight: 700; }
+    .sh-done {
+      font-size: 17px; font-weight: 600; color: #0A84FF;
+      background: none; border: none; cursor: pointer; font-family: inherit;
+    }
+
+    .teams-row {
+      display: flex;
+      gap: 12px;
+    }
+    .team-col {
+      flex: 1;
+      min-width: 0;
+    }
+    .sec { padding: 0 20px 18px; }
+    .sec-t {
+      font-size: 13px; font-weight: 600;
+      color: rgba(255,255,255,0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .set-row { display: flex; align-items: center; justify-content: space-between; }
+    .set-label { font-size: 16px; }
+    .mode-toggle {
+      display: flex;
+      background: rgba(255,255,255,0.07);
+      border-radius: 9px;
+      overflow: hidden;
+    }
+    .mode-btn {
+      padding: 6px 16px;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.4);
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn.sel {
+      background: #0A84FF;
+      color: #fff;
+      border-radius: 8px;
+    }
+    .stepper {
+      display: flex; align-items: center;
+      background: rgba(255,255,255,0.07);
+      border-radius: 9px; overflow: hidden;
+    }
+    .st-btn {
+      width: 36px; height: 32px; border: none;
+      background: transparent; color: #0A84FF;
+      font-size: 18px; cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .st-btn:active { background: rgba(255,255,255,0.06); }
+    .st-val {
+      width: 36px; text-align: center;
+      font-size: 16px; font-weight: 600;
+      border-left: 1px solid rgba(255,255,255,0.06);
+      border-right: 1px solid rgba(255,255,255,0.06);
+      line-height: 32px;
+    }
+
+    /* Player edit */
+    .pe { display: flex; align-items: center; gap: 12px; }
+    .pe+.pe { margin-top: 12px; }
+    .pe-av {
+      width: 46px; height: 46px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      flex-shrink: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      position: relative;
+      border: 2px solid rgba(255,255,255,0.12);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .pe-av canvas { width: 100%; height: 100%; border-radius: 50%; }
+    .pe-av:active { border-color: rgba(255,255,255,0.3); }
+    .pe-input {
+      flex: 1;
+      background: rgba(255,255,255,0.07);
+      border: none; border-radius: 10px;
+      padding: 9px 12px;
+      font-size: 16px; color: #fff;
+      font-family: inherit; outline: none;
+    }
+    .pe-input::placeholder { color: rgba(255,255,255,0.2); }
+    .pe-input:focus { background: rgba(255,255,255,0.11); }
+
+    .sep { height: 1px; background: rgba(255,255,255,0.05); margin: 12px 0; }
+
+    /* Color swatches */
+    .color-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      margin: 8px 0 4px;
+      letter-spacing: 0.5px;
+    }
+    .color-section-label:first-child { margin-top: 0; }
+    .cg { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cw {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2.5px solid transparent;
+      transition: transform 0.1s;
+      position: relative;
+    }
+    .cw:active { transform: scale(0.88); }
+    .cw.sel { border-color: #fff; }
+    /* Wallpaper swatches */
+    .wp-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .wp-swatch {
+      width: 48px; height: 48px;
+      border-radius: 10px;
+      cursor: pointer;
+      border: 2.5px solid transparent;
+      transition: transform 0.1s;
+      background-size: cover;
+      background-position: center;
+      position: relative;
+    }
+    .wp-swatch:active { transform: scale(0.9); }
+    .wp-swatch.sel { border-color: #fff; }
+    .wp-upload {
+      width: 48px; height: 48px;
+      border-radius: 10px;
+      cursor: pointer;
+      border: 2px dashed rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.4);
+      font-size: 22px;
+      transition: transform 0.1s;
+      flex-shrink: 0;
+    }
+    .wp-upload:active { transform: scale(0.9); background: rgba(255,255,255,0.1); }
+
+    /* Image crop editor */
+    .crop-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 400;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .crop-bg.show { display: flex; }
+    .crop-title {
+      font-size: 17px; font-weight: 700; color: #fff;
+      margin-bottom: 16px;
+    }
+    .crop-viewport {
+      overflow: hidden;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.3);
+      position: relative;
+      touch-action: none;
+      background: #111;
+    }
+    .crop-viewport img {
+      position: absolute;
+      transform-origin: 0 0;
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
+    }
+    .crop-controls {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 16px; width: 80%; max-width: 300px;
+    }
+    .crop-controls label {
+      font-size: 12px; color: rgba(255,255,255,0.5);
+      white-space: nowrap;
+    }
+    .crop-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.2);
+      outline: none;
+    }
+    .crop-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+    }
+    .crop-btns {
+      display: flex; gap: 12px; margin-top: 20px;
+    }
+    .crop-btn {
+      padding: 10px 28px; border-radius: 12px; border: none;
+      font-size: 16px; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .crop-cancel { background: rgba(255,255,255,0.12); color: #fff; }
+    .crop-confirm { background: #fff; color: #000; }
+    .wp-swatch.sel::after {
+      content: '✓'; position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .cw.sel::after {
+      content: '✓'; position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    /* Avatar picker modal */
+    .av-picker-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 300;
+      align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .av-picker-bg.show { display: flex; }
+    .av-picker {
+      background: #2c2c2e;
+      border-radius: 18px;
+      padding: 20px;
+      width: 100%;
+      max-width: 340px;
+    }
+    .av-picker-title {
+      font-size: 17px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .av-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+    .av-option {
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+      border: 2.5px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.1s, border-color 0.15s;
+      overflow: hidden;
+    }
+    .av-option canvas { width: 100%; height: 100%; }
+    .av-option:active { transform: scale(0.9); }
+    .av-option.sel { border-color: #0A84FF; }
+    .av-cancel {
+      display: block;
+      margin: 16px auto 0;
+      background: none; border: none;
+      color: #0A84FF;
+      font-size: 17px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+<div class="scoreboard">
+  <div class="call-banner">
+    <span class="call-v" id="callScore">0-0-2</span>
+  </div>
+  <div class="team-panel" id="panelLeft" onclick="addPoint('left')">
+    <div class="player-chip p-l1">
+      <div class="avatar" id="avL1"><div class="serve-dot" id="dotP1"><svg viewBox="0 0 40 48" fill="none"><rect x="17" y="35" width="6" height="11" rx="2.5" fill="#555" stroke="#333" stroke-width="1"/><path d="M10 8 L14 4 L26 4 L30 8 L30 24 L26 28 L14 28 L10 24 Z" fill="#222" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 8 L17 6 L23 6 L26 8 L26 21 L23 24 L17 24 L14 21 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.6"/></svg></div></div>
+      <span class="player-label" id="nmL1">P1</span>
+    </div>
+    <div class="player-chip p-l2">
+      <div class="avatar" id="avL2"><div class="serve-dot" id="dotP2"><svg viewBox="0 0 40 48" fill="none"><rect x="17" y="35" width="6" height="11" rx="2.5" fill="#555" stroke="#333" stroke-width="1"/><path d="M10 8 L14 4 L26 4 L30 8 L30 24 L26 28 L14 28 L10 24 Z" fill="#222" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 8 L17 6 L23 6 L26 8 L26 21 L23 24 L17 24 L14 21 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.6"/></svg></div></div>
+      <span class="player-label" id="nmL2">P2</span>
+    </div>
+    <div class="score-area">
+      <div class="serving-pill" id="servL">發球</div>
+      <div class="score" id="scL">0</div>
+      <div class="server-tag" id="svL">S2</div>
+    </div>
+    <button class="minus-btn" style="left:14px" onclick="event.stopPropagation();undo()">−</button>
+  </div>
+  <div class="team-panel" id="panelRight" onclick="addPoint('right')">
+    <div class="player-chip p-r1">
+      <div class="avatar" id="avR1"><div class="serve-dot" id="dotP3"><svg viewBox="0 0 40 48" fill="none"><rect x="17" y="35" width="6" height="11" rx="2.5" fill="#555" stroke="#333" stroke-width="1"/><path d="M10 8 L14 4 L26 4 L30 8 L30 24 L26 28 L14 28 L10 24 Z" fill="#222" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 8 L17 6 L23 6 L26 8 L26 21 L23 24 L17 24 L14 21 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.6"/></svg></div></div>
+      <span class="player-label" id="nmR1">P3</span>
+    </div>
+    <div class="player-chip p-r2">
+      <div class="avatar" id="avR2"><div class="serve-dot" id="dotP4"><svg viewBox="0 0 40 48" fill="none"><rect x="17" y="35" width="6" height="11" rx="2.5" fill="#555" stroke="#333" stroke-width="1"/><path d="M10 8 L14 4 L26 4 L30 8 L30 24 L26 28 L14 28 L10 24 Z" fill="#222" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 8 L17 6 L23 6 L26 8 L26 21 L23 24 L17 24 L14 21 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.6"/></svg></div></div>
+      <span class="player-label" id="nmR2">P4</span>
+    </div>
+    <div class="score-area">
+      <div class="serving-pill" id="servR">發球</div>
+      <div class="score" id="scR">0</div>
+      <div class="server-tag" id="svR"></div>
+    </div>
+    <button class="minus-btn" style="right:14px" onclick="event.stopPropagation();undo()">−</button>
+  </div>
+</div>
+
+<div class="bottom-bar">
+  <div class="bar-group">
+    <button class="view-toggle" id="viewToggle" onclick="toggleView()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span id="viewLabel">裁判</span>
+    </button>
+    <button class="pb dim" onclick="resetScore()">新局</button>
+  </div>
+  <button class="fault-center" onclick="fault()">換發</button>
+  <div class="bar-group">
+    <button class="ib" onclick="openSettings()">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="win-overlay" id="winOverlay">
+  <div class="win-e">🏆</div>
+  <div class="win-t" id="winText"></div>
+  <div class="win-s" id="winScore"></div>
+  <button class="win-b" onclick="resetGame()">再來一局</button>
+</div>
+
+<!-- Settings -->
+<div class="sheet-bg" id="sheetBg" onclick="closeSettings()">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sh-sticky-header">
+      <div class="sh-bar"><div class="sh-pill"></div></div>
+      <div class="sh-head">
+        <span class="sh-title">設定</span>
+        <button class="sh-done" onclick="closeSettings()">完成</button>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">比賽</div>
+      <div class="card">
+        <div class="set-row">
+          <span class="set-label">模式</span>
+          <div class="mode-toggle" id="modeToggle">
+            <button class="mode-btn" data-mode="singles" onclick="setMode('singles')">單打</button>
+            <button class="mode-btn sel" data-mode="doubles" onclick="setMode('doubles')">雙打</button>
+          </div>
+        </div>
+        <div class="set-row" style="margin-top:12px">
+          <span class="set-label">獲勝分數</span>
+          <div class="stepper">
+            <button class="st-btn" onclick="adjWin(-1)">−</button>
+            <div class="st-val" id="wsDisp">11</div>
+            <button class="st-btn" onclick="adjWin(1)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="teams-row">
+        <div class="team-col">
+          <div class="sec-t">隊伍 1</div>
+          <div class="card">
+            <div class="pe">
+              <div class="pe-av" id="eAv1" onclick="openAvatarPicker(0)"></div>
+              <input class="pe-input" id="iN1" placeholder="名稱" value="P1" maxlength="10">
+            </div>
+            <div class="pe">
+              <div class="pe-av" id="eAv2" onclick="openAvatarPicker(1)"></div>
+              <input class="pe-input" id="iN2" placeholder="名稱" value="P2" maxlength="10">
+            </div>
+            <div class="sep"></div>
+            <div class="color-container" id="cgL"></div>
+          </div>
+        </div>
+        <div class="team-col">
+          <div class="sec-t">隊伍 2</div>
+          <div class="card">
+            <div class="pe">
+              <div class="pe-av" id="eAv3" onclick="openAvatarPicker(2)"></div>
+              <input class="pe-input" id="iN3" placeholder="名稱" value="P3" maxlength="10">
+            </div>
+            <div class="pe">
+              <div class="pe-av" id="eAv4" onclick="openAvatarPicker(3)"></div>
+              <input class="pe-input" id="iN4" placeholder="名稱" value="P4" maxlength="10">
+            </div>
+            <div class="sep"></div>
+            <div class="color-container" id="cgR"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Avatar picker -->
+<div class="av-picker-bg" id="avPickerBg" onclick="closeAvatarPicker()">
+  <div class="av-picker" onclick="event.stopPropagation()">
+    <div class="av-picker-title">選擇頭像</div>
+    <div class="av-grid" id="avGrid"></div>
+    <button class="av-cancel" onclick="closeAvatarPicker()">取消</button>
+  </div>
+</div>
+
+<input type="file" id="wpFileInput" accept="image/*" style="display:none">
+
+<!-- Image crop editor -->
+<div class="crop-bg" id="cropBg">
+  <div class="crop-title">調整背景圖</div>
+  <div class="crop-viewport" id="cropViewport">
+    <img id="cropImg">
+  </div>
+  <div class="crop-controls">
+    <label>縮放</label>
+    <input type="range" class="crop-slider" id="cropZoom" min="0.5" max="3" step="0.01" value="1">
+  </div>
+  <div class="crop-btns">
+    <button class="crop-btn crop-cancel" onclick="closeCropEditor()">取消</button>
+    <button class="crop-btn crop-confirm" onclick="confirmCrop()">確認</button>
+  </div>
+</div>
+
+<script>
+// ===== Constants =====
+const MAX_HISTORY = 50;
+const MIN_WIN_SCORE = 1;
+const MAX_WIN_SCORE = 99;
+const DEFAULT_WIN_SCORE = 11;
+const WIN_MARGIN = 2;
+const MAX_NAME_LENGTH = 10;
+const STORAGE_KEY = 'pickleballScorekeeper';
+const RETINA_SCALE = 2;
+
+// Avatar drawing constants
+const HEAD_RADIUS = 0.28;
+const EYE_Y_OFFSET = -0.1;
+const EYE_X_SPREAD = 0.3;
+const EYE_RADIUS = 0.13;
+const EAR_X = 0.7;
+const EAR_Y = -0.75;
+const EAR_RADIUS = 0.35;
+const INNER_EAR_RADIUS = 0.2;
+
+// Canvas sizes for different contexts
+const AVATAR_SIZE_BOARD = 80;
+const AVATAR_SIZE_SETTINGS = 46;
+const AVATAR_SIZE_PICKER = 54;
+
+// DOM element ID mappings
+const AVATAR_ELS = ['avL1', 'avL2', 'avR1', 'avR2'];
+const NAME_ELS = ['nmL1', 'nmL2', 'nmR1', 'nmR2'];
+const INPUT_ELS = ['iN1', 'iN2', 'iN3', 'iN4'];
+const SETTINGS_AVATAR_ELS = ['eAv1', 'eAv2', 'eAv3', 'eAv4'];
+
+// Serve dot SVG template
+const SERVE_DOT_SVG = '<svg viewBox="0 0 40 48" fill="none"><rect x="17" y="35" width="6" height="11" rx="2.5" fill="#555" stroke="#333" stroke-width="1"/><path d="M10 8 L14 4 L26 4 L30 8 L30 24 L26 28 L14 28 L10 24 Z" fill="#222" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 8 L17 6 L23 6 L26 8 L26 21 L23 24 L17 24 L14 21 Z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.6"/></svg>';
+
+// ===== Animal avatar drawing =====
+const ANIMALS = [
+  { id:'cat',    bg:'#FFE0B2', body:'#FF9800', eyes:'#4E342E', label:'🐱' },
+  { id:'dog',    bg:'#D7CCC8', body:'#8D6E63', eyes:'#3E2723', label:'🐶' },
+  { id:'bear',   bg:'#A1887F', body:'#6D4C41', eyes:'#1B0000', label:'🐻' },
+  { id:'rabbit', bg:'#F8BBD0', body:'#EC407A', eyes:'#880E4F', label:'🐰' },
+  { id:'panda',  bg:'#ECEFF1', body:'#37474F', eyes:'#000',    label:'🐼' },
+  { id:'fox',    bg:'#FFE0B2', body:'#E65100', eyes:'#1B0000', label:'🦊' },
+  { id:'frog',   bg:'#C8E6C9', body:'#388E3C', eyes:'#1B5E20', label:'🐸' },
+  { id:'chick',  bg:'#FFF9C4', body:'#FDD835', eyes:'#4E342E', label:'🐥' },
+  { id:'pig',    bg:'#FCE4EC', body:'#F48FB1', eyes:'#4E342E', label:'🐷' },
+  { id:'penguin',bg:'#CFD8DC', body:'#263238', eyes:'#000',    label:'🐧' },
+];
+
+function drawAnimal(canvas, animal, size) {
+  canvas.width = size * RETINA_SCALE;
+  canvas.height = size * RETINA_SCALE;
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  const ctx = canvas.getContext('2d');
+  const s = size * RETINA_SCALE;
+  const cx = s / 2, cy = s / 2;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, s / 2, 0, Math.PI * 2);
+  ctx.fillStyle = animal.bg;
+  ctx.fill();
+
+  const r = s * HEAD_RADIUS;
+
+  // Ears
+  ctx.fillStyle = animal.body;
+  if (animal.id === 'rabbit') {
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.5, cy - r * 1.5, r * 0.22, r * 0.7, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.5, cy - r * 1.5, r * 0.22, r * 0.7, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#F8BBD0';
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.5, cy - r * 1.45, r * 0.12, r * 0.5, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.5, cy - r * 1.45, r * 0.12, r * 0.5, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = animal.body;
+  } else if (animal.id === 'penguin') {
+    // No visible ears
+  } else if (animal.id === 'frog') {
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.55, cy - r * 0.85, r * EAR_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + r * 0.55, cy - r * 0.85, r * EAR_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (animal.id === 'chick') {
+    ctx.fillStyle = '#F9A825';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - r * 1.15, r * 0.15, r * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = animal.body;
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx - r * EAR_X, cy + r * EAR_Y, r * EAR_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + r * EAR_X, cy + r * EAR_Y, r * EAR_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    if (['cat', 'fox', 'pig'].includes(animal.id)) {
+      const inner = animal.id === 'pig' ? '#FCE4EC' : '#FFE0B2';
+      ctx.fillStyle = inner;
+      ctx.beginPath();
+      ctx.arc(cx - r * EAR_X, cy + r * EAR_Y, r * INNER_EAR_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx + r * EAR_X, cy + r * EAR_Y, r * INNER_EAR_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = animal.body;
+    }
+    if (animal.id === 'panda') {
+      ctx.fillStyle = '#37474F';
+      ctx.beginPath();
+      ctx.arc(cx - r * EAR_X, cy + r * EAR_Y, r * EAR_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx + r * EAR_X, cy + r * EAR_Y, r * EAR_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Head
+  const headColor = animal.id === 'penguin' ? animal.body
+    : animal.id === 'panda' ? '#fff'
+    : ['frog', 'chick'].includes(animal.id) ? animal.body
+    : animal.bg;
+  ctx.fillStyle = headColor;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (animal.id === 'penguin') {
+    ctx.fillStyle = '#ECEFF1';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + r * 0.1, r * 0.7, r * 0.75, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Eyes
+  ctx.fillStyle = animal.eyes;
+  const ey = cy + r * EYE_Y_OFFSET;
+  const ex = r * EYE_X_SPREAD;
+  const er = r * EYE_RADIUS;
+
+  if (animal.id === 'panda') {
+    ctx.fillStyle = '#37474F';
+    ctx.beginPath();
+    ctx.ellipse(cx - ex, ey, r * 0.25, r * 0.2, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + ex, ey, r * 0.25, r * 0.2, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx - ex, ey, er, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + ex, ey, er, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(cx - ex, ey, er * 0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + ex, ey, er * 0.6, 0, Math.PI * 2); ctx.fill();
+  } else if (animal.id === 'frog') {
+    const fey = cy - r * 0.5;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx - r * 0.35, fey, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.35, fey, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = animal.eyes;
+    ctx.beginPath(); ctx.arc(cx - r * 0.35, fey, r * 0.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.35, fey, r * 0.1, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(cx - ex, ey, er, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + ex, ey, er, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx - ex + er * 0.3, ey - er * 0.3, er * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + ex + er * 0.3, ey - er * 0.3, er * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Nose & mouth
+  if (animal.id === 'pig') {
+    ctx.fillStyle = '#E91E63';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + r * 0.2, r * 0.22, r * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#C2185B';
+    ctx.beginPath(); ctx.arc(cx - r * 0.08, cy + r * 0.2, r * 0.04, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.08, cy + r * 0.2, r * 0.04, 0, Math.PI * 2); ctx.fill();
+  } else if (animal.id === 'chick') {
+    ctx.fillStyle = '#E65100';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.1);
+    ctx.lineTo(cx - r * 0.15, cy + r * 0.25);
+    ctx.lineTo(cx + r * 0.15, cy + r * 0.25);
+    ctx.fill();
+  } else if (animal.id === 'penguin') {
+    ctx.fillStyle = '#FF8F00';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.05);
+    ctx.lineTo(cx - r * 0.2, cy + r * 0.25);
+    ctx.lineTo(cx + r * 0.2, cy + r * 0.25);
+    ctx.fill();
+  } else if (animal.id === 'frog') {
+    ctx.strokeStyle = animal.eyes;
+    ctx.lineWidth = r * 0.06;
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 0.15, r * 0.25, 0.1, Math.PI - 0.1);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = animal.id === 'bear' ? '#3E2723' : animal.id === 'fox' ? '#1B0000' : '#795548';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.15);
+    ctx.lineTo(cx - r * 0.1, cy + r * 0.05);
+    ctx.lineTo(cx + r * 0.1, cy + r * 0.05);
+    ctx.fill();
+    ctx.strokeStyle = animal.eyes;
+    ctx.lineWidth = r * 0.05;
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 0.2, r * 0.18, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+  }
+}
+
+// ===== Config =====
+const COLORS_VIVID = [
+  '#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE',
+  '#0A84FF', '#5856D6', '#AF52DE', '#FF2D55', '#1C1C1E',
+];
+const WALLPAPERS = [
+  { name:'Gryffindor', left:'wallpaper/Gryffindor_R.png', right:'wallpaper/Gryffindor_L.png', color:'#740001' },
+  { name:'Slytherin',  left:'wallpaper/Slytherin_R.png',  right:'wallpaper/Slytherin_L.png',  color:'#1a472a' },
+  { name:'Hufflepuff', left:'wallpaper/Hufflepuff_R.png', right:'wallpaper/Hufflepuff_L.png', color:'#ecb939' },
+  { name:'Ravenclaw',  left:'wallpaper/Ravenclaw_R.png',  right:'wallpaper/Ravenclaw_L.png',  color:'#0e1a40' },
+];
+const COLORS_MORANDI = [
+  '#9AACB8', '#B8C5D0', '#A3B5A6', '#8FA39B', '#C4AFA0',
+  '#D4B5A0', '#C9A0A0', '#BFA8C4', '#A0A4B8', '#D6C6B0',
+];
+
+// ===== localStorage =====
+function saveSettings() {
+  try {
+    const data = {
+      players: players,
+      teamColors: teamColors,
+      teamBgImages: teamBgImages,
+      gameMode: gameMode,
+      winScore: winScore,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) { /* localStorage unavailable or full */ }
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.players && Array.isArray(data.players)) {
+      data.players.forEach((p, i) => {
+        if (i < players.length) {
+          players[i].name = String(p.name || '').slice(0, MAX_NAME_LENGTH) || 'P' + (i + 1);
+          players[i].animalIdx = (typeof p.animalIdx === 'number' && p.animalIdx >= 0 && p.animalIdx < ANIMALS.length) ? p.animalIdx : i;
+        }
+      });
+    }
+    if (data.teamColors && typeof data.teamColors === 'object') {
+      teamColors.left = data.teamColors.left || teamColors.left;
+      teamColors.right = data.teamColors.right || teamColors.right;
+    }
+    if (data.teamBgImages && typeof data.teamBgImages === 'object') {
+      teamBgImages.left = data.teamBgImages.left || null;
+      teamBgImages.right = data.teamBgImages.right || null;
+    }
+    if (data.gameMode === 'singles' || data.gameMode === 'doubles') {
+      gameMode = data.gameMode;
+    }
+    if (typeof data.winScore === 'number') {
+      winScore = Math.max(MIN_WIN_SCORE, Math.min(MAX_WIN_SCORE, data.winScore));
+    }
+  } catch (e) { /* ignore corrupted data */ }
+}
+
+// ===== Game state =====
+const players = [
+  { name:'P1', animalIdx:0 },
+  { name:'P2', animalIdx:7 },
+  { name:'P3', animalIdx:4 },
+  { name:'P4', animalIdx:3 },
+];
+let teamColors = { left:'#A3B5A6', right:'#C4AFA0' };
+let teamBgImages = { left:'wallpaper/Gryffindor_R.png', right:'wallpaper/Slytherin_L.png' };
+let isPlayerView = false;
+let gameMode = 'doubles';
+let state = { sL:0, sR:0, serving:'left', server:2, over:false, swapL:false, swapR:false, isFirstServer:false, serverOneIsAltLeft:false, serverOneIsAltRight:false };
+let winScore = DEFAULT_WIN_SCORE;
+let hist = [];
+
+function createDefaultState() {
+  return { sL:0, sR:0, serving:'left', server:2, over:false, swapL:false, swapR:false, isFirstServer:false, serverOneIsAltLeft:false, serverOneIsAltRight:false };
+}
+
+function push() {
+  hist.push(JSON.stringify(state));
+  if (hist.length > MAX_HISTORY) hist.shift();
+}
+
+function undo() {
+  if (!hist.length) return;
+  state = JSON.parse(hist.pop());
+  render();
+}
+
+function resetScore() {
+  push();
+  Object.assign(state, createDefaultState());
+  render();
+}
+
+function addPoint(s) {
+  if (state.over) return;
+  if (s !== state.serving) { fault(); return; }
+  push();
+  s === 'left' ? state.sL++ : state.sR++;
+  if (s === 'left') state.swapL = !state.swapL;
+  else state.swapR = !state.swapR;
+  if ((state.sL >= winScore || state.sR >= winScore) && Math.abs(state.sL - state.sR) >= WIN_MARGIN) {
+    state.over = true;
+  }
+  render();
+}
+
+function minusPoint(s) {
+  if (state.over) return;
+  push();
+  if (s === 'left' && state.sL > 0) state.sL--;
+  else if (s === 'right' && state.sR > 0) state.sR--;
+  render();
+}
+
+function fault() {
+  if (state.over) return;
+  push();
+  if (gameMode === 'singles') {
+    state.serving = state.serving === 'left' ? 'right' : 'left';
+    state.server = 1;
+    state.isFirstServer = true;
+  } else {
+    if (state.isFirstServer) {
+      state.server = (state.server === 1) ? 2 : 1;
+      state.isFirstServer = false;
+    } else {
+      state.serving = state.serving === 'left' ? 'right' : 'left';
+      state.server = 1;
+      state.isFirstServer = true;
+      // Left team right side = bottom: P2 is server1 when swapL=false (even score), P1 when swapL=true (odd)
+      state.serverOneIsAltLeft = !state.swapL;
+      // Right team right side = top: P4 is server1 when swapR=true (odd score), P3 when swapR=false (even)
+      state.serverOneIsAltRight = state.swapR;
+    }
+  }
+  render();
+}
+
+function selectWallpaper(side, wp) {
+  teamBgImages[side] = wp[side];
+  buildColors();
+  render();
+  saveSettings();
+}
+
+function clearWallpaper(side) {
+  teamBgImages[side] = null;
+  buildColors();
+  render();
+  saveSettings();
+}
+
+// ===== Custom wallpaper upload + crop editor =====
+let uploadTargetSide = null;
+const wpFileInput = document.getElementById('wpFileInput');
+const cropBg = document.getElementById('cropBg');
+const cropImg = document.getElementById('cropImg');
+const cropViewport = document.getElementById('cropViewport');
+const cropZoom = document.getElementById('cropZoom');
+let cropState = { scale: 1, x: 0, y: 0, dragging: false, lastX: 0, lastY: 0, imgW: 0, imgH: 0 };
+
+function openWpUpload(side) {
+  uploadTargetSide = side;
+  wpFileInput.click();
+}
+
+wpFileInput.addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file || !uploadTargetSide) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    openCropEditor(e.target.result);
+  };
+  reader.readAsDataURL(file);
+  this.value = '';
+});
+
+function openCropEditor(src) {
+  // Dynamically size crop viewport to match actual team panel ratio
+  const panel = document.getElementById('panelLeft');
+  const panelW = panel.clientWidth;
+  const panelH = panel.clientHeight;
+  const ratio = panelW / panelH;
+  const maxH = window.innerHeight * 0.55;
+  const maxW = window.innerWidth * 0.7;
+  let vpH = maxH;
+  let vpW = vpH * ratio;
+  if (vpW > maxW) { vpW = maxW; vpH = vpW / ratio; }
+  cropViewport.style.width = vpW + 'px';
+  cropViewport.style.height = vpH + 'px';
+
+  cropImg.onload = function() {
+    cropState.imgW = cropImg.naturalWidth;
+    cropState.imgH = cropImg.naturalHeight;
+    const vw = cropViewport.clientWidth;
+    const vh = cropViewport.clientHeight;
+    const fitScale = Math.max(vw / cropState.imgW, vh / cropState.imgH);
+    cropState.scale = fitScale;
+    cropState.x = (vw - cropState.imgW * fitScale) / 2;
+    cropState.y = (vh - cropState.imgH * fitScale) / 2;
+    cropZoom.min = fitScale * 0.5;
+    cropZoom.max = fitScale * 4;
+    cropZoom.step = fitScale * 0.01;
+    cropZoom.value = fitScale;
+    updateCropTransform();
+  };
+  cropImg.src = src;
+  cropBg.classList.add('show');
+}
+
+function updateCropTransform() {
+  cropImg.style.transform = `translate(${cropState.x}px, ${cropState.y}px) scale(${cropState.scale})`;
+}
+
+cropZoom.addEventListener('input', function() {
+  const vw = cropViewport.clientWidth;
+  const vh = cropViewport.clientHeight;
+  const oldScale = cropState.scale;
+  const newScale = parseFloat(this.value);
+  const cx = vw / 2, cy = vh / 2;
+  cropState.x = cx - (cx - cropState.x) * (newScale / oldScale);
+  cropState.y = cy - (cy - cropState.y) * (newScale / oldScale);
+  cropState.scale = newScale;
+  updateCropTransform();
+});
+
+// Drag to pan (touch + mouse)
+cropViewport.addEventListener('pointerdown', function(e) {
+  cropState.dragging = true;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  this.setPointerCapture(e.pointerId);
+});
+cropViewport.addEventListener('pointermove', function(e) {
+  if (!cropState.dragging) return;
+  cropState.x += e.clientX - cropState.lastX;
+  cropState.y += e.clientY - cropState.lastY;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  updateCropTransform();
+});
+cropViewport.addEventListener('pointerup', function() { cropState.dragging = false; });
+cropViewport.addEventListener('pointercancel', function() { cropState.dragging = false; });
+
+// Pinch to zoom
+let pinchDist = 0;
+let pinchStartScale = 1;
+cropViewport.addEventListener('touchstart', function(e) {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    pinchStartScale = cropState.scale;
+  }
+}, { passive: false });
+cropViewport.addEventListener('touchmove', function(e) {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const newScale = Math.max(parseFloat(cropZoom.min), Math.min(parseFloat(cropZoom.max), pinchStartScale * (dist / pinchDist)));
+    const vw = cropViewport.clientWidth;
+    const vh = cropViewport.clientHeight;
+    const cx = vw / 2, cy = vh / 2;
+    cropState.x = cx - (cx - cropState.x) * (newScale / cropState.scale);
+    cropState.y = cy - (cy - cropState.y) * (newScale / cropState.scale);
+    cropState.scale = newScale;
+    cropZoom.value = newScale;
+    updateCropTransform();
+  }
+}, { passive: false });
+
+function closeCropEditor() {
+  cropBg.classList.remove('show');
+  uploadTargetSide = null;
+}
+
+function confirmCrop() {
+  const vw = cropViewport.clientWidth;
+  const vh = cropViewport.clientHeight;
+  const canvas = document.createElement('canvas');
+  const dpr = 2;
+  canvas.width = vw * dpr;
+  canvas.height = vh * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.drawImage(cropImg, cropState.x, cropState.y, cropState.imgW * cropState.scale, cropState.imgH * cropState.scale);
+  teamBgImages[uploadTargetSide] = canvas.toDataURL('image/jpeg', 0.85);
+  buildColors();
+  render();
+  saveSettings();
+  closeCropEditor();
+}
+
+function setMode(mode) {
+  gameMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('sel', b.dataset.mode === mode);
+  });
+  const isSingles = mode === 'singles';
+  document.querySelector('.scoreboard').classList.toggle('singles-mode', isSingles);
+  document.querySelector('.p-l2').style.display = isSingles ? 'none' : '';
+  document.querySelector('.p-r2').style.display = isSingles ? 'none' : '';
+  [SETTINGS_AVATAR_ELS[1], INPUT_ELS[1], SETTINGS_AVATAR_ELS[3], INPUT_ELS[3]].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.closest('.pe').style.display = isSingles ? 'none' : '';
+  });
+  if (isSingles) { state.server = 1; }
+  render();
+  saveSettings();
+}
+
+function toggleView() {
+  isPlayerView = !isPlayerView;
+  document.querySelector('.scoreboard').classList.toggle('player-view', isPlayerView);
+  document.getElementById('viewLabel').textContent = isPlayerView ? '球員' : '裁判';
+}
+
+function getServeSlot(serving) {
+  if (serving === 'left') {
+    const p1pos = state.swapL ? 1 : 0;
+    const p2pos = state.swapL ? 0 : 1;
+    const s1pos = state.serverOneIsAltLeft ? p2pos : p1pos;
+    const s2pos = state.serverOneIsAltLeft ? p1pos : p2pos;
+    return state.server === 1 ? s1pos : s2pos;
+  } else {
+    const p3pos = state.swapR ? 3 : 2;
+    const p4pos = state.swapR ? 2 : 3;
+    const s1pos = state.serverOneIsAltRight ? p4pos : p3pos;
+    const s2pos = state.serverOneIsAltRight ? p3pos : p4pos;
+    return state.server === 1 ? s1pos : s2pos;
+  }
+}
+
+function render() {
+  document.getElementById('scL').textContent = state.sL;
+  document.getElementById('scR').textContent = state.sR;
+  document.getElementById('servL').classList.toggle('active', state.serving === 'left');
+  document.getElementById('servR').classList.toggle('active', state.serving === 'right');
+
+  const svL = document.getElementById('svL'), svR = document.getElementById('svR');
+  if (state.serving === 'left') {
+    svL.textContent = `第 ${state.server} 發球員`; svL.classList.add('active');
+    svR.textContent = ''; svR.classList.remove('active');
+  } else {
+    svR.textContent = `第 ${state.server} 發球員`; svR.classList.add('active');
+    svL.textContent = ''; svL.classList.remove('active');
+  }
+
+  document.getElementById('callScore').textContent = state.serving === 'left'
+    ? `${state.sL}-${state.sR}-${state.server}`
+    : `${state.sR}-${state.sL}-${state.server}`;
+
+  const lTop = state.swapL ? 1 : 0;
+  const lBot = state.swapL ? 0 : 1;
+  const rTop = state.swapR ? 3 : 2;
+  const rBot = state.swapR ? 2 : 3;
+  const displayOrder = [lTop, lBot, rTop, rBot];
+
+  displayOrder.forEach((pi, i) => {
+    const el = document.getElementById(AVATAR_ELS[i]);
+    const animal = ANIMALS[players[pi].animalIdx];
+    let c = el.querySelector('canvas');
+    if (!c) { c = document.createElement('canvas'); el.prepend(c); }
+    drawAnimal(c, animal, AVATAR_SIZE_BOARD);
+    let dot = el.querySelector('.serve-dot');
+    if (!dot) { dot = document.createElement('div'); dot.className = 'serve-dot'; dot.innerHTML = SERVE_DOT_SVG; el.appendChild(dot); }
+    dot.classList.remove('on');
+    document.getElementById(NAME_ELS[i]).textContent = players[pi].name;
+  });
+
+  const serveSlot = getServeSlot(state.serving);
+  const d = document.getElementById(AVATAR_ELS[serveSlot]).querySelector('.serve-dot');
+  if (d) d.classList.add('on');
+
+  const pL = document.getElementById('panelLeft');
+  const pR = document.getElementById('panelRight');
+  if (teamBgImages.left) {
+    pL.style.background = `url(${teamBgImages.left}) right center/cover no-repeat`;
+  } else {
+    pL.style.background = teamColors.left;
+  }
+  if (teamBgImages.right) {
+    pR.style.background = `url(${teamBgImages.right}) left center/cover no-repeat`;
+  } else {
+    pR.style.background = teamColors.right;
+  }
+
+  if (state.over) {
+    document.getElementById('winOverlay').classList.add('show');
+    const w = state.sL > state.sR ? 'left' : 'right';
+    const pi = w === 'left' ? [0, 1] : [2, 3];
+    document.getElementById('winText').textContent = players[pi[0]].name + ' & ' + players[pi[1]].name + ' 獲勝';
+    document.getElementById('winText').style.color = teamColors[w];
+    document.getElementById('winScore').textContent = `${state.sL} : ${state.sR}`;
+  } else {
+    document.getElementById('winOverlay').classList.remove('show');
+  }
+}
+
+// ===== Settings =====
+function openSettings() {
+  document.getElementById('sheetBg').classList.add('show');
+  INPUT_ELS.forEach((id, i) => document.getElementById(id).value = players[i].name);
+  document.getElementById('wsDisp').textContent = winScore;
+  buildColors();
+  SETTINGS_AVATAR_ELS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    let c = el.querySelector('canvas');
+    if (!c) { c = document.createElement('canvas'); el.appendChild(c); }
+    drawAnimal(c, ANIMALS[players[i].animalIdx], AVATAR_SIZE_SETTINGS);
+  });
+}
+
+function closeSettings() {
+  INPUT_ELS.forEach((id, i) => {
+    const raw = document.getElementById(id).value.trim().slice(0, MAX_NAME_LENGTH);
+    players[i].name = raw || 'P' + (i + 1);
+  });
+  document.getElementById('sheetBg').classList.remove('show');
+  render();
+  saveSettings();
+}
+
+function adjWin(d) {
+  winScore = Math.max(MIN_WIN_SCORE, Math.min(MAX_WIN_SCORE, winScore + d));
+  document.getElementById('wsDisp').textContent = winScore;
+  saveSettings();
+}
+
+function buildColors() {
+  ['Left', 'Right'].forEach(side => {
+    const el = document.getElementById('cg' + side[0]);
+    const key = side.toLowerCase();
+    el.innerHTML = '';
+
+    const wpLbl = document.createElement('div');
+    wpLbl.className = 'color-section-label';
+    wpLbl.textContent = '學院';
+    el.appendChild(wpLbl);
+    const wpRow = document.createElement('div');
+    wpRow.className = 'wp-row';
+    WALLPAPERS.forEach(wp => {
+      const s = document.createElement('div');
+      const isSel = teamBgImages[key] === wp[key];
+      s.className = 'wp-swatch' + (isSel ? ' sel' : '');
+      s.style.backgroundImage = `url(${wp[key]})`;
+      s.title = wp.name;
+      s.onclick = () => {
+        if (isSel) { clearWallpaper(key); }
+        else { selectWallpaper(key, wp); }
+      };
+      wpRow.appendChild(s);
+    });
+    // Custom upload button
+    const upBtn = document.createElement('div');
+    upBtn.className = 'wp-upload';
+    upBtn.textContent = '+';
+    const isCustom = teamBgImages[key] && teamBgImages[key].startsWith('data:');
+    if (isCustom) {
+      upBtn.className = 'wp-swatch sel';
+      upBtn.style.backgroundImage = `url(${teamBgImages[key]})`;
+      upBtn.onclick = () => { clearWallpaper(key); };
+    } else {
+      upBtn.onclick = () => { openWpUpload(key); };
+    }
+    wpRow.appendChild(upBtn);
+    el.appendChild(wpRow);
+
+    function addSection(label, colors) {
+      const lbl = document.createElement('div');
+      lbl.className = 'color-section-label';
+      lbl.textContent = label;
+      el.appendChild(lbl);
+      const row = document.createElement('div');
+      row.className = 'cg';
+      colors.forEach(c => {
+        const s = document.createElement('div');
+        const isSel = !teamBgImages[key] && teamColors[key] === c;
+        s.className = 'cw' + (isSel ? ' sel' : '');
+        s.style.background = c;
+        s.onclick = () => { teamColors[key] = c; teamBgImages[key] = null; buildColors(); render(); saveSettings(); };
+        row.appendChild(s);
+      });
+      el.appendChild(row);
+    }
+
+    addSection('一般色', COLORS_VIVID);
+    addSection('莫蘭迪色', COLORS_MORANDI);
+  });
+}
+
+// ===== Avatar picker =====
+let pickingPlayer = -1;
+
+function openAvatarPicker(playerIdx) {
+  pickingPlayer = playerIdx;
+  const grid = document.getElementById('avGrid');
+  grid.innerHTML = '';
+  ANIMALS.forEach((a, i) => {
+    const opt = document.createElement('div');
+    opt.className = 'av-option' + (players[playerIdx].animalIdx === i ? ' sel' : '');
+    const c = document.createElement('canvas');
+    opt.appendChild(c);
+    drawAnimal(c, a, AVATAR_SIZE_PICKER);
+    opt.onclick = () => {
+      players[playerIdx].animalIdx = i;
+      closeAvatarPicker();
+      const el = document.getElementById(SETTINGS_AVATAR_ELS[playerIdx]);
+      let cv = el.querySelector('canvas');
+      if (!cv) { cv = document.createElement('canvas'); el.appendChild(cv); }
+      drawAnimal(cv, ANIMALS[i], AVATAR_SIZE_SETTINGS);
+      render();
+      saveSettings();
+    };
+    grid.appendChild(opt);
+  });
+  document.getElementById('avPickerBg').classList.add('show');
+}
+
+function closeAvatarPicker() {
+  document.getElementById('avPickerBg').classList.remove('show');
+  pickingPlayer = -1;
+}
+
+function confirmReset() { if (confirm('重新開始？')) resetGame(); }
+
+function resetGame() {
+  state = createDefaultState();
+  hist = [];
+  document.getElementById('winOverlay').classList.remove('show');
+  render();
+}
+
+// ===== Init =====
+loadSettings();
+if (gameMode === 'singles') setMode('singles');
+render();
+</script>
+</body>
+</html>
