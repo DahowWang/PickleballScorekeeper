@@ -71,7 +71,9 @@ class WebViewController: UIViewController, WKScriptMessageHandler, SyncServiceDe
                 let isFirstServer = stateDict["isFirstServer"] as? Bool ?? false
                 let serverOneIsAltLeft = stateDict["serverOneIsAltLeft"] as? Bool ?? false
                 let serverOneIsAltRight = stateDict["serverOneIsAltRight"] as? Bool ?? false
-                WatchReceiver.shared.sendScoreToWatch(sL: sL, sR: sR, playersLeft: pL, playersRight: pR, serving: serving, server: server, gameMode: gameMode, isFirstServer: isFirstServer, serverOneIsAltLeft: serverOneIsAltLeft, serverOneIsAltRight: serverOneIsAltRight)
+                let swapL = stateDict["swapL"] as? Bool ?? false
+                let swapR = stateDict["swapR"] as? Bool ?? false
+                WatchReceiver.shared.sendScoreToWatch(sL: sL, sR: sR, playersLeft: pL, playersRight: pR, serving: serving, server: server, gameMode: gameMode, isFirstServer: isFirstServer, serverOneIsAltLeft: serverOneIsAltLeft, serverOneIsAltRight: serverOneIsAltRight, swapL: swapL, swapR: swapR)
             }
         case "toggleSync":
             if SyncService.shared.isActive {
@@ -110,6 +112,8 @@ class WebViewController: UIViewController, WKScriptMessageHandler, SyncServiceDe
             webView.evaluateJavaScript("fault()") { _, _ in }
         case "undo":
             webView.evaluateJavaScript("undo()") { _, _ in }
+        case "reset":
+            webView.evaluateJavaScript("resetScore()") { _, _ in }
         default:
             break
         }
@@ -125,12 +129,8 @@ class WebViewController: UIViewController, WKScriptMessageHandler, SyncServiceDe
         const origResetScore = window.resetScore;
 
         function broadcastState() {
-            const pL = state.swapL
-                ? [players[1].name, players[0].name]
-                : [players[0].name, players[1].name];
-            const pR = state.swapR
-                ? [players[3].name, players[2].name]
-                : [players[2].name, players[3].name];
+            const pL = [players[0].name, players[1].name];
+            const pR = [players[2].name, players[3].name];
             const stateJSON = JSON.stringify({
                 sL: state.sL, sR: state.sR,
                 serving: state.serving, server: state.server,

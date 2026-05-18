@@ -84,7 +84,7 @@ class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         scoreLeft = 0
         scoreRight = 0
         serving = "left"
-        server = 2
+        server = (gameMode == "singles") ? 1 : 2
         swapL = false
         swapR = false
         isFirstServer = false
@@ -138,9 +138,12 @@ class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
             if let altR = message["serverOneIsAltRight"] as? Bool {
                 self.serverOneIsAltRight = altR
             }
-            // iPhone sends already-swapped player arrays, so reset local swap
-            self.swapL = false
-            self.swapR = false
+            if let sw = message["swapL"] as? Bool {
+                self.swapL = sw
+            }
+            if let sw = message["swapR"] as? Bool {
+                self.swapR = sw
+            }
         }
     }
 

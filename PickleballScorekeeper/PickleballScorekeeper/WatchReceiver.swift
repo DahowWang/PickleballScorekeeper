@@ -19,14 +19,16 @@ class WatchReceiver: NSObject, WCSessionDelegate {
         }
     }
 
-    func sendScoreToWatch(sL: Int, sR: Int, playersLeft: [String] = [], playersRight: [String] = [], serving: String = "left", server: Int = 2, gameMode: String = "doubles", isFirstServer: Bool = false, serverOneIsAltLeft: Bool = false, serverOneIsAltRight: Bool = false) {
+    func sendScoreToWatch(sL: Int, sR: Int, playersLeft: [String] = [], playersRight: [String] = [], serving: String = "left", server: Int = 2, gameMode: String = "doubles", isFirstServer: Bool = false, serverOneIsAltLeft: Bool = false, serverOneIsAltRight: Bool = false, swapL: Bool = false, swapR: Bool = false) {
         guard WCSession.default.isReachable else { return }
         var message: [String: Any] = [
             "sL": sL, "sR": sR,
             "serving": serving, "server": server, "gameMode": gameMode,
             "isFirstServer": isFirstServer,
             "serverOneIsAltLeft": serverOneIsAltLeft,
-            "serverOneIsAltRight": serverOneIsAltRight
+            "serverOneIsAltRight": serverOneIsAltRight,
+            "swapL": swapL,
+            "swapR": swapR
         ]
         if !playersLeft.isEmpty { message["playersLeft"] = playersLeft }
         if !playersRight.isEmpty { message["playersRight"] = playersRight }
